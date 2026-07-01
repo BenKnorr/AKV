@@ -44,7 +44,8 @@
     ## These modules are required for the script to execute properly.
     $RequiredModules = @(
         "Az.Accounts",
-        "Az.KeyVault"
+        "Az.KeyVault",
+        "Az.Resources"
     )
     ## This script assumes that the manually obtained PFX file lives in the current user's downloads folder.
     $Downloads = Join-Path $env:USERPROFILE "Downloads"
