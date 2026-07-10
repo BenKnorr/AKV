@@ -26,7 +26,7 @@
         to corresponding secret.
     8) Delete PFX file and exit.
 
-    v1.1.0
+    v1.1.1
 #>
 #endregion
 
