@@ -1,4 +1,4 @@
-﻿#region preamble
+#region preamble
 <#
     title: Client AKV cert downloader
 
@@ -8,6 +8,7 @@
 
     assumptions:
     - Az.Accounts, Az.KeyVault modules are installed.
+    1.2.1
 #>
 #endregion
 
@@ -62,19 +63,28 @@
 #region Module check and install
 
     foreach ($module in $RequiredModules) {
+
         try {
-            if (-not (Get-Module -ListAvailable -Name $module)) {
+            
+            if (-not (Get-Module -ListAvailable -Name $module -ErrorAction stop)) {
+
                 Write-Log -Action "Module '$module' not found. Installing..."
-                Install-Module -Name $module -Scope CurrentUser -Force -AllowClobber
+                Install-Module -Name $module -Scope CurrentUser -Force -AllowClobber -ErrorAction stop
                 Write-Log -Action "Module '$module' installed successfully"
+
             }
+
             else {
+
                 Write-Log -Action "Module '$module' already installed"
+
             }
         }
         catch {
+
             Write-Log -Action "Failed to install module '$module'" -Status "ERROR" -ErrorMessage $_.Exception.Message
             exit 1
+
         }
     }
 #endregion
@@ -87,14 +97,19 @@
     ## this allows interactive login for the admin user who will be uploading the certificate to the respective
     ## keystore in AKV.
     try {
+
         Write-Log -Action "Attempting Azure login"
         Connect-AzAccount -AccountId "$currentuser" -ErrorAction Stop
         Write-Log -Action "Azure login successful"
         $vaults=Get-AzKeyVault
+
     }
+
     catch {
+
         Write-Log -Action "Azure login failed" -Status "ERROR" -ErrorMessage $_.Exception.Message
         exit 1
+
     }
     Write-Log -Action "Azure login completed"
 
@@ -121,11 +136,25 @@
     ## check for "webcares" or "caiso" CA issued certs and
     ## delete user certs that are expired.
 
-    $localCertStore= Get-ChildItem Cert:\currentuser\My |Where-Object {($_.issuer -like "*Caiso*") -or ($_.issuer -like "*WebCares*")}
+    try {
+     
+        $localCertStore= Get-ChildItem Cert:\currentuser\My |Where-Object {($_.issuer -like "*Caiso*") -or ($_.issuer -like "*WebCares*")}
+
+    }
+    
+    catch {
+
+        Write-Log -Action "we failed to get the local certficiate store." -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+    }
+
     foreach ($cert in ($localCertStore)) {
+
         if ($cert.notafter -lt (get-date)) {
+
             Write-Log -Action "deleting expired user cert with thumbprint $($cert.thumbprint)"
             Remove-Item (join-path "Cert:\CurrentUser\My" $cert.Thumbprint)
+
         }
     }
 
@@ -138,22 +167,56 @@
 
     ## The user won't know which vaults, subscriptions, or resource groups that they belong to.
     ## this will get all vaults of which they have access.
-    $vaults=Get-AzKeyVault
+    
+    try {
+    
+        $vaults=Get-AzKeyVault -erroraction stop
+    
+    }
+
+    catch {
+
+        write-log -action "we couldn't get get-azkeyvault to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+    }
 
     foreach ($vault in $vaults){
     
-        $matchedkeys = Get-AzKeyVaultCertificate -VaultName $vault.vaultname
+        try {
+        
+            $matchedkeys = Get-AzKeyVaultCertificate -VaultName $vault.vaultname -ErrorAction stop
+
+        }
+
+        catch {
+
+            write-log -action "we couldn't get get-azkeyvaultcertificate to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+        }
+
         foreach ($matchedkey in ($matchedKeys |Where-Object {$_.Tags.values -contains $currentuser})) {
                 
             ##we're looping through all keys, one at a time in this vault that have the UPN tag of the current logged in user.
+            
+            try {
                
-            $matchedkey = Get-AzKeyVaultCertificate -VaultName $vault.vaultname -Name $matchedkey.name
-            ## ^ this will match a 1 to 1 user cert. it might also match a shared cert with only the tag.
-            ## $matchedkey will be the full certificate at this point.
+                $matchedkey = Get-AzKeyVaultCertificate -VaultName $vault.vaultname -Name $matchedkey.name -ErrorAction Stop
+                ## ^ this will match a 1 to 1 user cert. it might also match a shared cert with only the tag.
+                ## $matchedkey will be the full certificate at this point.
+            
+            }
+
+            catch {
+
+                write-log -action "we couldn't get get-azkeyvaultcertificate to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+            }
                         
             ## this check looks to see if the current AKV cert in $matchedkey exists in the localstore too
             if ($matchedkey.Certificate.Thumbprint) {
+
                 $akvThumbprints[$matchedkey.Certificate.Thumbprint.ToUpper()] = $matchedkey.Name
+
             }
 
             ## local keystore portion : if $localcert get populated, then we have a match from the current
@@ -161,7 +224,9 @@
             $localcert = $localCertStore |Where-Object {$_.thumbprint -contains $($matchedkey.Thumbprint)}
 
             if ([bool]($localcert.Thumbprint)) {
+
                 Write-Log -Action "the cert $($localcert.Thumbprint) is already in the personal store!"    
+
             }
 
             ######################### ^ this detects an existing cert properly. BK June 29.2026
@@ -177,7 +242,17 @@
                     ## the rest of this loop assembles the PFX file from AKV for consumption on this client
                         
                     write-log -Action "getting secret for $($matchedkey.name)"
-                    $secret = Get-AzKeyVaultSecret -VaultName $vault.vaultname -Name $matchedkey.name
+
+                    try {
+
+                        $secret = Get-AzKeyVaultSecret -VaultName $vault.vaultname -Name $matchedkey.name -ErrorAction stop
+                    }
+
+                    catch {
+
+                        write-log -action "we couldn't get get-azkeyvaultsercret to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+                    }
 
                     write-log -Action "getting secret into bytestream for $($matchedkey.name)"
                     $plainBase64 = [System.Runtime.InteropServices.Marshal]::PtrToStringUni(
@@ -196,12 +271,28 @@
                     [System.IO.File]::WriteAllBytes($outFile, $exported)
                 #endregion
 
-                $import=Import-PfxCertificate -FilePath "$outFile" -CertStoreLocation Cert:\CurrentUser\My        
-                if ($import) {
-                    write-log -Action "PFX with thumbprint $($matchedkey.Thumbprint) written imported to local store."
+                try {
+                
+                    $import=Import-PfxCertificate -FilePath "$outFile" -CertStoreLocation Cert:\CurrentUser\My -ErrorAction stop
+                    
                 }
+                
+                catch {
+                
+                     write-log -action "we couldn't get import-pfxcertificate to work on $($outfile)" -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+                }
+                       
+                if ($import) {
+
+                    write-log -Action "PFX with thumbprint $($matchedkey.Thumbprint) written imported to local store."
+
+                }
+
                 else {
+
                     write-log -Action "something happened while we were trying to import the PFX to the local store." -ErrorMessage $_.exception.message -Status "ERROR"
+
                 }
             }
         }
@@ -213,6 +304,8 @@
                     
 #endregion
 
+
+<# THIS CAN BE ADDED AFTER ALL USER CERTIFICATES HAVE BEEN ONBOARDED INTO AZURE KEY VAULT
 
 # ==========================================
 # local cert cleanup for missing cloud certs
@@ -237,3 +330,4 @@ foreach ($cert in $localcertstore) {
 }
 #prune local certs that are misisng from AKV that are in scope.
 #endregion
+#>
