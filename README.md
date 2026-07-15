@@ -4,12 +4,16 @@
 These scripts are designed to allow an admin to upload PFX files that were manually obtained through other means and to upload them to Azure Key Vault. Once in AKV, the KV_downloader script that is intended to be installed on users' workstations and will download public/private keys that are scoped to them in AKV and then install them onto the personal certificate store of their respective Windows user profiles. The end result is that the manually obtained PFX files will be automatically installed on users' workstations after manual upload through the admin script.
 
 ## AZURE PERMISSIONS AND ROLES
-Admins :
+*Admins :*
 * "OWNER" role implicitly or explicitly for the vaults they will be uploading to and managing certificates in. Ultimately, the role/s in use need to allow the admin running the script to upload     certificates.
-Users :
+
+*Users :*
 * "KEY VAULT READER" for any vaults that their respective certificates may live in. Note that this role allows them to see a vault, including other users' public keys which are not required to be confidential. This role is typically logically applied via adding certificate users ("CAISO USERS" security group for instance) to an Active Directory security group that is synchronized to Entra, then assigning that AZ group the role for the respective keyvault ("MERCHANT" or "NON-MERCHANT" typically).
 * [automatically assigned roles via script] : The admin uploader script will assign the "KEY VAULT CERTIFICATE USER" role to both the public and private key that is scoped to the targeted user to enable that respective user to ultimately obtain the keypair. This ensures that this targeted user (and admins) are the only ones who can access their respective keypair/s.
-* RBAC/Azure Roles are maintained as separate logical objects and are not tied to AKV (role assignments live outside of AKV regardless of scope/application). They may be implicitly or explicitly applied; because of this, if uploading a certificate multiple times to the same AKV object or if a certificate is renewed and uploaded in the same fashion, the RBAC object that applies/applied to that object will still exist. If a user leaves and their account is disabled/deleted, this will not matter. If a user changes a business role, the AKV certificate object formerly assigned to them should be manually deleted, and the Azure Role for those objects deleted manually (although if the AKV cert object is deleted, they are just orphaned roles and don't represent additional risk).
+
+NOTE :
+
+RBAC/Azure Roles are maintained as separate logical objects and are not tied to AKV (role assignments live outside of AKV regardless of scope/application). They may be implicitly or explicitly applied; because of this, if uploading a certificate multiple times to the same AKV object or if a certificate is renewed and uploaded in the same fashion, the RBAC object that applies/applied to that object will still exist. If a user leaves and their account is disabled/deleted, this will not matter. If a user changes a business role, the AKV certificate object formerly assigned to them should be manually deleted, and the Azure Role for those objects deleted manually (although if the AKV cert object is deleted, they are just orphaned roles and don't represent additional risk).
 
 ## AZURE NOTES
 TAGNAMES/VALUES :
@@ -20,7 +24,7 @@ SHARED CERTIFICATES :
 
 Scripts that are meant to be shared among multiple users need to be re-run through this script for each user (3x users who use certificate-A need 3x runs for the script that target each user separately). This will result in multiple certificates that have the same thumbprint in any given vault, with each copy having individual user role permissions.
 
-RENEWED CERTIFICATES OR REUPLOADED CERTIFICATES THAT ALREADY EXIST
+RENEWED CERTIFICATES OR REUPLOADED CERTIFICATES THAT ALREADY EXIST :
 
 When a certificate is uploaded to Azure Key Vault, the resulting AKV object will contain a single certificate. When a certificate is reuploaded or renewed and uploaded to the same object in AKV, a history is maintained for that AKV object. By default, all user-side actions on a certificate that they have permissions for will target the most recent certificate populated in that AKV object. 
 
@@ -59,12 +63,11 @@ When a certificate is uploaded to Azure Key Vault, the resulting AKV object will
 1) Powershell 5 or higher
 2) No admin permissions are required.
 3) The script needs to be run in a user context.
-4) The script should be set to run as a login-script, scheduled task (trigger to run at login typically), or other means.
-5) The script should not be restricted to run: setting the task to run with the ExecutionPolicy -Bypass is a typical method to avoid a greater risk of setting the system or user PS context to run with Unrestricted. Signing the script using Customer supplied certificate is also possible to ensure integrity of the contents and avoid unintentional operations.
+4) The script should be set to run as a login-script, scheduled task (trigger to run at login typically), or other means to achieve the desired frequency of certificate delivery to the user.
+5) The script should not be restricted to run: setting the task to run with the *ExecutionPolicy -Bypass* is a typical method to avoid a greater risk of setting the system or user PS context to run with *Executionpolicy -Unrestricted*. Signing the script using Customer supplied certificate is also possible to ensure integrity of the contents of the script and avoid unintentional alteration.
 6) The workstation where the user logs in must be Entra joined or AD hybrid joined.
 7) The Azure Connect service (on a separate system) should be set to allow seamless SSO to allow the user's kerberos ticket to authenticate them to Azure resources.
 8) The user who runs the script needs to be either an EntraID native account, or a hybrid synchronized account from AD to EntraID.
-9) The workstation that the user is logging into needs to be Entra joined or hybrid AD synchronized.
 
 ### workflow (no user interaction is needed):
 1) Script logs activity to the user's home directory.
