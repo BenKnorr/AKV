@@ -1,4 +1,4 @@
-#region preamble
+   #region preamble
 <#
     title: Client AKV cert downloader
 
@@ -8,7 +8,7 @@
 
     assumptions:
     - Az.Accounts, Az.KeyVault modules are installed.
-    1.2.1
+    1.2.2
 #>
 #endregion
 
@@ -58,6 +58,66 @@
 #endregion
 
 # ====================================
+# NuGet Check & Install
+# ====================================
+#region NuGet check and install
+
+    try {
+    
+        $NuGetExistence=(get-packageprovider |Where-Object {$_.name -like "NuGet"})
+
+        if (-not [bool]$NuGetExistence) {
+
+            ## Enforce TLS 1.2 to allow the safe payload download
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+            ## Blindfold the broken confirmation engine for this user session
+            $OldConfirmPreference = $ConfirmPreference
+            $ConfirmPreference = 'None'
+
+
+            ## Silently install NuGet provider into current user's profile
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force -ForceBootstrap
+
+            ## Restore original system preferences
+            $ConfirmPreference = $OldConfirmPreference
+
+        }
+    }
+
+    catch {
+        
+        Write-Log -Action "there was an error while getting or installing the NuGet package provider" -Status "ERROR" -ErrorMessage $_.Exception.Message
+
+    }
+
+    try {
+
+        $PSGalleryInstallationPolicy=(Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue)
+
+        if ($PSGalleryInstallationPolicy.InstallationPolicy -notlike "Trusted") {
+
+            Set-PSRepository -name "PSGallery" -InstallationPolicy Trusted -ErrorAction SilentlyContinue
+            write-log -Action "PSgallery is not trusted. Setting it to Trusted..."
+        }
+        
+        else {
+
+            write-log -Action "PSGallery is already set as Trusted"
+
+        }
+
+    }
+
+    catch {
+
+        Write-Log -Action "There was a problem getting the PSrepository for PSgallery so we can make it trusted" -status "ERROR" -ErrorMessage $_.Exception.Message
+
+    }
+
+#endregion 
+
+# ====================================
 # Module Check & Install
 # ====================================
 #region Module check and install
@@ -101,7 +161,7 @@
         Write-Log -Action "Attempting Azure login"
         Connect-AzAccount -AccountId "$currentuser" -ErrorAction Stop
         Write-Log -Action "Azure login successful"
-        $vaults=Get-AzKeyVault
+        $vaults=Get-AzKeyVault -erroraction stop
 
     }
 
@@ -331,3 +391,6 @@ foreach ($cert in $localcertstore) {
 #prune local certs that are misisng from AKV that are in scope.
 #endregion
 #>
+ 
+ 
+ 
