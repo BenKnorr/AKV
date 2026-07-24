@@ -26,7 +26,7 @@
         to corresponding secret.
     8) Delete PFX file and exit.
 
-    v1.1.1
+    v1.1.2
 #>
 #endregion
 
@@ -44,6 +44,9 @@
     ## app tag is only used for informational purposes and not for any IAM purposes.
     $tagAppKey="App"
     $tagUserKey="User"
+
+    ## This script assumes that the manually obtained PFX file lives in the current user's downloads folder.
+    $Downloads = Join-Path $env:USERPROFILE "Downloads"
     
     $LogFile = "C:\Scripts\MyScript.log"
     ## These modules are required for the script to execute properly.
@@ -52,8 +55,8 @@
         "Az.KeyVault",
         "Az.Resources"
     )
-    ## This script assumes that the manually obtained PFX file lives in the current user's downloads folder.
-    $Downloads = Join-Path $env:USERPROFILE "Downloads"
+
+    $scriptRepeat = $true
 #endregion
 
 # ============================
