@@ -8,7 +8,7 @@
 
     assumptions:
     - Az.Accounts, Az.KeyVault modules are installed.
-    1.2.2
+    1.2.3
 #>
 #endregion
 
@@ -29,6 +29,8 @@
     )
     $logfile="$env:userprofile\AKV-userscript.log"
     $akvThumbprints = @{}
+    $AZtargetSubscription = ## AZ SubscriptionID : ADMIN ADD AZURE SUBSCRIPTION ID HERE BEFORE DEPLOYING THIS SCRIPT TO CLIENTS ##
+
 
 #endregion
 
@@ -162,6 +164,7 @@
         Connect-AzAccount -AccountId "$currentuser" -ErrorAction Stop
         Write-Log -Action "Azure login successful"
         $vaults=Get-AzKeyVault -erroraction stop
+        Set-AzContext -SubscriptionId $AZtargetSubscription -ErrorAction stop
 
     }
 
