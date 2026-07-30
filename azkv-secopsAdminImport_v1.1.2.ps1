@@ -10,7 +10,7 @@
     *install/check AZKV modules
     *connect to AZKV with Entra user with proper permissions
     functionality:
-    1) Find, select and confirm .pfx file
+    1) Find, select and confirm .pfx/.p12 file
     2) Open PFX file using user supplied password
     3) Parse PFX public key's subject information
     4.1) Check Entra for user-email attribute match to the certificate's "E" subject (if it exists)
@@ -26,7 +26,7 @@
         to corresponding secret.
     8) Delete PFX file and exit.
 
-    v1.1.2
+    v1.1.3
 #>
 #endregion
 
@@ -45,10 +45,13 @@
     $tagAppKey="App"
     $tagUserKey="User"
 
+    ## define the targeted production Azure subscription ID here.
+    $AZtargetSubscription = ## AZ SubscriptionID : ADMIN ADD AZURE SUBSCRIPTION ID HERE ##
+
     ## This script assumes that the manually obtained PFX file lives in the current user's downloads folder.
     $Downloads = Join-Path $env:USERPROFILE "Downloads"
     
-    $LogFile = "C:\Scripts\MyScript.log"
+    $LogFile = ## Log file location : ADMIN ADD FULL FILE PATH INCLUDING FILENAME HERE ##
     ## These modules are required for the script to execute properly.
     $RequiredModules = @(
         "Az.Accounts",
@@ -56,7 +59,8 @@
         "Az.Resources"
     )
 
-    $scriptRepeat = $true
+    $scriptRepeat=$true
+
 #endregion
 
 # ============================
@@ -110,9 +114,10 @@ Write-Log -Action "Script started"
         }
 
         catch {
-        
-            Write-Log -Action "Failed to install module '$module'" -Status "ERROR" -ErrorMessage $_.Exception.Message
-            exit 1
+            
+            Write-Log -Action "Failed to install module : '$module'" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+            write-error "failed to install module : $($module)`n$($_.exception.message)"
+            throw
         
         }
     }
@@ -130,13 +135,17 @@ Write-Log -Action "Script started"
         Write-Log -Action "Attempting Azure login"
         Connect-AzAccount -ErrorAction Stop
         Write-Log -Action "Azure login successful"
+        
+        Set-AzContext -SubscriptionId $AZtargetSubscription -ErrorAction stop
+        Write-Log -Action "Changed AZ context to subscription $($AZtargetSubscription)"
     
     }
     
     catch {
         
-        Write-Log -Action "Azure login failed" -Status "ERROR" -ErrorMessage $_.Exception.Message
-        exit 1
+        Write-Log -Action "Azure login or context switch failed." -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+        Write-Error "Azure login or context switch failed.`n$($exception.message)"
+        throw
     
     }
     Write-Log -Action "Azure login completed"
@@ -155,14 +164,15 @@ while ($scriptRepeat) {
         Write-Log -Action "Prompting user for PFX file path"
         Write-Host "
         ################################################
-        ########  Step 1 — Prompt for PFX Path  ########
+        ####### Step 1 — Prompt for PFX/P12 Path #######
         ################################################" -ForegroundColor white
 
 
         # Find all .pfx files, sorted by last modified date (newest first)
-        $pfxFiles = Get-ChildItem -Path $downloads -Filter *.pfx | Sort-Object LastWriteTime -Descending
+        # from here forward, the verbage of "pfx" is mostly used for either type of certificate P12 or PFX
+        $pfxFiles = Get-ChildItem -Path $downloads | Where-Object { $_.Extension -eq ".pfx" -or $_.Extension -eq ".p12" }| Sort-Object LastWriteTime -Descending
 
-        write-host "`tWhich PFX file in your DOWNLOADS folder do you want to use? (sorted by date modified)" -ForegroundColor Yellow
+        write-host "`tWhich PFX/P12 file in your DOWNLOADS folder do you want to use? (sorted by date modified)" -ForegroundColor Yellow
         # Display numbered list
         for ($i = 0; $i -lt $pfxFiles.Count; $i++) {
 
@@ -173,10 +183,10 @@ while ($scriptRepeat) {
 
         # Add manual option
         $manualOption = $pfxFiles.Count + 1
-        Write-Host "`t$manualOption) Manually specify your own PFX path" -ForegroundColor Cyan
+        Write-Host "`t$manualOption) Manually specify your own full certificate path. P12 or PFX only." -ForegroundColor Cyan
 
         # Prompt user
-        write-host "Select a PFX file by number" -ForegroundColor Magenta
+        write-host "Select a PFX/P12 file by number" -ForegroundColor Magenta
         $selection = Read-Host
 
         if ([int]$selection -eq $manualOption) {
@@ -184,10 +194,10 @@ while ($scriptRepeat) {
             $manualPFXcheck=$null
             while (-not $manualPFXcheck) {
             
-                write-host  "Enter full path to your PFX file" -foregroundcolor magenta
+                write-host  "Enter full path to your PFX/P12 file" -foregroundcolor magenta
                 $PfxPath = Read-Host
                 if (test-path $pfxpath){
-                    Write-Log -action "admin supplied PFX path is valid for $pfxpath"
+                    Write-Log -action "admin supplied certificate path is valid for $pfxpath"
                     $manualPFXcheck=$true
                 }
                 else {
@@ -203,7 +213,7 @@ while ($scriptRepeat) {
         
         }
 
-        Write-Log -Action "PFX file exists: $PfxPath"
+        Write-Log -Action "certificate file exists: $PfxPath"
         Write-Host "`tSUCCESS! $PfxPath file exists." -ForegroundColor Green
     #endregion
 
@@ -217,10 +227,10 @@ while ($scriptRepeat) {
         ##############################################" -ForegroundColor white
 
         ## 1. Capture the password as a SecureString
-        Write-Host "`nEnter the password for the PFX file:" -ForegroundColor magenta
+        Write-Host "`nEnter the password for the certificate bundle:" -ForegroundColor magenta
         $PfxPasswordSecure = Read-Host -AsSecureString
 
-        Write-Log -Action "Attempting to load PFX certificate"
+        Write-Log -Action "Attempting to load certificate"
 
         try {
         
@@ -232,15 +242,16 @@ while ($scriptRepeat) {
                 [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
             )
 
-            Write-Log -Action "PFX certificate loaded successfully"
-            Write-Host "`tSUCCESS! PFX certificate loaded successfully" -ForegroundColor Green
+            Write-Log -Action "certificate loaded successfully"
+            Write-Host "`tSUCCESS! certificate loaded successfully" -ForegroundColor Green
         
         }
         
         catch {
         
-            Write-Log -Action "Failed to load PFX certificate" -Status "ERROR" -ErrorMessage $_.Exception.Message
-            throw "`tCould not load certificate. Maybe a bad password?"
+            Write-Log -Action "Failed to load certificate" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+            Write-Error "failed to load certificate.`n$($_.Exception.message)"
+            throw
         
         }
     #endregion
@@ -333,8 +344,9 @@ while ($scriptRepeat) {
             
             catch {
             
-                Write-Log -Action "We failed running get-adazuser while trying to find an Entra user by email lookup" -Status "ERROR" -ErrorMessage $_.Exception.Message
-                exit
+                Write-Log -Action "We failed running get-adazuser while trying to find an Entra user by email lookup" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                Write-Error "failed to get-adazuser to lookup user by email. `n$($_.Exception.Message) "
+                throw
 
             }
         }
@@ -356,88 +368,101 @@ while ($scriptRepeat) {
         ## Passing through this region is only possible is if a matcheduser is found here or
         ## in previous region.
 
-        Write-Host "
-        ################################################
-        #### Step 4.2 — Check Entra for user by CN  ####
-        ################################################" -ForegroundColor white
+        if ($MatchSource -ne "Email") {
 
-        Write-Host "
-        We will try to match the certificate's CN with an Entra user's
-        'Display Name' attribute. There may be inconsistencies with
-        CN vs. Display name; the script will attempt to match them
-        automatically." -ForegroundColor white
-        
-        Write-Log -Action "Attempting CN-based lookup"
+            Write-Host "
+            ################################################
+            #### Step 4.2 — Check Entra for user by CN  ####
+            ################################################" -ForegroundColor white
 
-        # Extract display name before "x####"
-        $DisplayNameCandidate = $CN -replace "x\d+$","" -replace "\s+$",""
-        Write-Host "`n`tOur CN-derived display name:" -ForegroundColor Yellow
-        Write-Host "`t$displaynamecandidate`n" -ForegroundColor Cyan
-        
-        try {
-
-            $MatchedUser = Get-AzADUser -Filter "displayName eq '$DisplayNameCandidate'" -ErrorAction Stop
-
-        }
-        catch {
-
-            Write-Log -Action "failed to run `'ge-azaduser`' while attempting to get a user based on the certificate's sanitized CN." -Status "ERROR" -ErrorMessage $_.Exception.Message
-
-        }
-
-        if ($MatchedUser) {
-
-            ## this loop is processed only if the display name in entra matches the certificate's CN field. No other actions are needed in this 4.2 section.
-            $MatchSource = "DisplayName"
+            Write-Host "
+            We will try to match the certificate's CN with an Entra user's
+            'Display Name' attribute. There may be inconsistencies with
+            CN vs. Display name; the script will attempt to match them
+            automatically." -ForegroundColor white
             
-            Write-Host "`tSUCCESS!" -foregroundcolor green
-            write-host "`tEntra display name & certificate CN match:" -ForegroundColor yellow
-            Write-Host "`tENTRA   : $matcheduser.displayname`n`tCERT-CN : $displaynamecandidate" -ForegroundColor Green
-            Write-Log -Action "Found matching certificate CN to Entra user Display Name: $ManualUPN / $($MatchedUser.DisplayName)"
+            Write-Log -Action "Attempting CN-based lookup"
 
-        }
+            # Extract display name before "x####"
+            $DisplayNameCandidate = $CN -replace "x\d+$","" -replace "\s+$",""
+            Write-Host "`n`tOur CN-derived display name:" -ForegroundColor Yellow
+            Write-Host "`t$displaynamecandidate`n" -ForegroundColor Cyan
+            
+            try {
 
-        else {
+                $MatchedUser = Get-AzADUser -Filter "displayName eq '$DisplayNameCandidate'" -ErrorAction Stop
 
-            Write-Host "`tWARNING!" -ForegroundColor Red
-            write-host "`tWe couldn't find an Entra user's Display Name that matches the certificate's CN field:" -ForegroundColor Yellow
-            write-host "`tCERT-CN : `"$displaynamecandidate`"" -ForegroundColor cyan
+            }
+            catch {
+
+                Write-Log -Action "failed to run `'get-azaduser`' while attempting to get a user based on the certificate's sanitized CN." -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                Write-Error "failed to get the user in Entra based on the certificate subject's mail attribute.`n$($_.Exception.Message)"
+                throw
+            }
+
+            if ($MatchedUser) {
+
+                ## this loop is processed only if the display name in entra matches the certificate's CN field. No other actions are needed in this 4.2 section.
+                $MatchSource = "DisplayName"
                 
-            while (-not $matchedUser) {
-    
-                ## ^we only go through this loop if displayname -ne cert-CN
+                Write-Host "`tSUCCESS!" -foregroundcolor green
+                write-host "`tEntra display name & certificate CN match:" -ForegroundColor yellow
+                Write-Host "`tENTRA   : $matcheduser.displayname`n`tCERT-CN : $displaynamecandidate" -ForegroundColor Green
+                Write-Log -Action "Found matching certificate CN to Entra user Display Name: $ManualUPN / $($MatchedUser.DisplayName)"
 
-                write-host "`nPlease enter a UPN manually (example: user@domain.com):" -ForegroundColor Magenta
-                $ManualUPN = Read-Host
-                if ($manualUPN) {
+            }
+
+            else {
+
+                Write-Host "`tWARNING!" -ForegroundColor Red
+                write-host "`tWe couldn't find an Entra user's Display Name that matches the certificate's CN field:" -ForegroundColor Yellow
+                write-host "`tCERT-CN : `"$displaynamecandidate`"" -ForegroundColor cyan
                     
-                    try {
-                    
-                        $MatchedUser = Get-AzADUser -Filter "UserPrincipalName eq '$ManualUPN'" -ErrorAction Stop
-                    
+                while (-not $matchedUser) {
+        
+                    ## ^we only go through this loop if displayname -ne cert-CN
+
+                    write-host "`nPlease enter a UPN manually (example: user@domain.com):" -ForegroundColor Magenta
+                    $ManualUPN = Read-Host
+                    if ($manualUPN) {
+                        
+                        try {
+                        
+                            $MatchedUser = Get-AzADUser -Filter "UserPrincipalName eq '$ManualUPN'" -ErrorAction Stop
+                        
+                        }
+                        
+                        catch {
+
+                            write-log -action "failed to run `'get-azaduser`' while attempting to get a user based on an admin's manual input. this shouldn't fail if a user is not found/matched." -Status "ERROR" -ErrorMessage $($_.Exception.Message)    
+                            Write-Error "failed to to get Entra user based on the certificate's DisplayName attribute.`n$($_.exception.message)"
+                            throw
+
+                        }
                     }
                     
-                    catch {
-
-                        write-log -action "failed to run `'ge-azaduser`' while attempting to get a user based on an admin's manual input. this shouldn't fail if a user is not found/matched." -Status "ERROR" -ErrorMessage $_.Exception.Message    
-
+                    if ($matcheduser) {
+        
+                        Write-Host "`n`tSUCCESS! Entra ID UPN found." -foregroundcolor green
+                        Write-Log -Action "Admin entered manual UPN and was found in Entra: $ManualUPN"
+        
                     }
-                }
-                
-                if ($matcheduser) {
-    
-                    Write-Host "`n`tSUCCESS! Entra ID UPN found." -foregroundcolor green
-                    Write-Log -Action "Admin entered manual UPN and was found in Entra: $ManualUPN"
-    
-                }
-    
-                else {
-    
-                    write-host "`tNo user found with that UPN in Entra ID." -ForegroundColor yellow
-    
+        
+                    else {
+        
+                        write-host "`tNo user found with that UPN in Entra ID." -ForegroundColor yellow
+        
+                    }
                 }
             }
         }
+
+        else {
+            
+            Write-Log -Action "Skipping CN match because email match was successful."
+
+        }
+
     #endregion
 
     # ============================
@@ -520,6 +545,7 @@ while ($scriptRepeat) {
 
         while (-not $importSuccess) {
 
+            <# THIS SECTION WAS DEPRECATED IN v1.2.3
             #region Azure subscription picker
 
                 ## this section asks the user for the subscription they want. Subscriptions
@@ -572,6 +598,7 @@ while ($scriptRepeat) {
 
                 Clear-Variable selection -ErrorAction SilentlyContinue
             #endregion
+            #>
 
             #region resource group picker
                 Write-Host "`tAvailable Resource Groups in this subscription:" -ForegroundColor yellow
@@ -584,8 +611,9 @@ while ($scriptRepeat) {
                 
                 catch {
                 
-                    Write-Log -Action "Something broke when trying to get-azresourcegroup (all groups)" -Status "ERROR" -ErrorMessage $_.Exception.Message
-                    exit
+                    Write-Log -Action "Something broke when trying to get-azresourcegroup (all groups)" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                    write-error "failed when trying to get AZ groups.`n'($_.exception.message)"
+                    throw
                 
                 }
 
@@ -611,7 +639,8 @@ while ($scriptRepeat) {
             ## ^ from here forward, all interactions occur within vaults in this RG. This assumes that 
             ## the admin boundary for merchant/non-merchant vaults is in RGs, and respective vaults
             ## inside of them.
-            
+
+
             #region vault picker
                 Write-Host "`tAvailable Vaults in this resource group:" -ForegroundColor yellow
                 
@@ -623,26 +652,40 @@ while ($scriptRepeat) {
                 
                 catch {
                 
-                    Write-Log -Action "Something broke when trying to get vaults via get-azkeyvault" -Status "ERROR" -ErrorMessage $_.Exception.Message
-                    exit
+                    Write-Log -Action "Something broke when trying to get vaults via get-azkeyvault" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                    write-error "failed when trying to get vaults.`n$($_.Exception.Message)"
+                    throw
 
                 }
                 
-                for ($i = 0; $i -lt $vaultlist.Count; $i++) {
+                if ($vaultlist.count -gt 0) {
 
-                    $num = $i + 1
-                    Write-Host "`t$num) $($vaultlist[$i].VaultName)" -ForegroundColor Cyan
+                    Write-Host "`tAvailable Vaults in this resource group:" -ForegroundColor yellow
+
+                    for ($i = 0; $i -lt $vaultlist.Count; $i++) {
+
+                        $num = $i + 1
+                        Write-Host "`t$num) $($vaultlist[$i].VaultName)" -ForegroundColor Cyan
+
+                    }
+                    
+                    Clear-Variable selection -ErrorAction ignore   
+                    #validate input
+                    while (-not ($selection -as [int]) -or $selection -lt 1 -or $selection -gt $vaultlist.Count) {
+
+                        write-host "`nEnter the number of the Vault you want to use" -ForegroundColor Magenta
+                        $selection = Read-Host
+                        $kvName = $vaultlist[$selection -1]
+                        Write-Log -Action "admin selected vault $($kvName.vaultname)"
+
+                    }
 
                 }
-                
-                Clear-Variable selection -ErrorAction ignore   
-                #validate input
-                while (-not ($selection -as [int]) -or $selection -lt 1 -or $selection -gt $vaultlist.Count) {
+                else {
 
-                    write-host "`nEnter the number of the Vault you want to use" -ForegroundColor Magenta
-                    $selection = Read-Host
-                    $kvName = $vaultlist[$selection -1]
-                    Write-Log -Action "admin selected vault $($kvName.vaultname)"
+                    $kvname = $vaultlist[0]
+                    write-host "`tUsing vault: $($kvname)" -ForegroundColor Yellow
+                    write-log -Action "Using vault $($kvname)"
 
                 }
 
@@ -653,14 +696,14 @@ while ($scriptRepeat) {
             # 2. Remove all spaces
             $proposedCleanCertSubject = (($subjectparts | Where-Object Key -eq 'CN').Value -replace '[^a-zA-Z0-9-]', '-') -replace '\s', ''
 
-            write-host "`tThe suggested friendly name for this certificate in Azure Key Vault is:" -foregroundcolor yellow
+            write-host "`tThe suggested Azure Key Vault object name for this certificate is:" -foregroundcolor yellow
             write-host "`t$proposedCleanCertSubject" -ForegroundColor cyan
             write-host "`nPress ENTER to use this, or enter a name manually (no spaces, no special characters except '-'):" -ForegroundColor Magenta
             $CertSubject=read-host
 
             if ([string]::IsNullOrWhiteSpace($CertSubject)) {
 
-                Write-Log -Action "User selected cleaned certificate subject automatically: $proposedCleanCertSubject"
+                Write-Log -Action "User selected Azure sanitized-name automatically: $proposedCleanCertSubject"
                 $certSubject=$proposedCleanCertSubject
 
             }
@@ -668,13 +711,13 @@ while ($scriptRepeat) {
             else {
 
                 $CertSubject = $CertSubject -replace ('[^a-zA-Z0-9-]', '-') -replace '\s', ''
-                Write-Host "`tThe sanitized version of the certificate is:" -ForegroundColor Yellow
+                Write-Host "`tThe sanitized name of the certificate object that will be created in Azure Key Vault is:" -ForegroundColor Yellow
                 write-host "`t$certsubject" -ForegroundColor cyan
-                Write-Log -Action "User entered custom cleaned certificate subject: $certSubject"
+                Write-Log -Action "User entered custom sanitized certificate object name: $certSubject"
 
             }
 
-            Write-Host "`nContinue with Azure Key Vault PFX upload? (y/n)" -ForegroundColor Magenta
+            Write-Host "`nContinue with Azure Key Vault certificate upload? (y/n)" -ForegroundColor Magenta
             Clear-Variable response -ErrorAction Ignore
             $Response = Read-Host
 
@@ -709,10 +752,9 @@ while ($scriptRepeat) {
 
             catch {
                 
-                Write-Host "`n$($_.Exception.Message)" -ForegroundColor Red
-                Write-Log -Action "Certificate was not uploaded to AKV." -Status "ERROR" -ErrorMessage $_.Exception.Message
-                throw "`tAn error occured. Please check your vault name and the name of the certificate."
-                exit 1
+                Write-Log -Action "Certificate was not uploaded to AKV." -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                Write-Error "failed to upload certificates to AKV.`n$($_.exception.message)"
+                throw
 
             }
         }
@@ -734,7 +776,9 @@ while ($scriptRepeat) {
 
 
         #region app tag picker
-            $selection=$null
+            clear-variable selection -ErrorAction SilentlyContinue
+            Clear-Variable tagAppValue -ErrorAction SilentlyContinue
+
             write-host "`tApp tags" -ForegroundColor Yellow
             write-host "`t1) CAISO" -ForegroundColor Cyan
             write-host "`t2) OATI" -ForegroundColor Cyan
@@ -757,21 +801,23 @@ while ($scriptRepeat) {
 
             }
         #endregion
-
-        $tagUserValue=$ConfirmedUser.UserPrincipalName
+        
+        Clear-Variable $tagUserValue -ErrorAction SilentlyContinue
+        $tagUserValue=$($ConfirmedUser.UserPrincipalName)
         $updatedtags=@{$tagAppKey="$tagAppValue" ; $tagUserKey=$tagUserValue}
 
         try {
 
-            Set-AzKeyVaultCertificateAttribute -VaultName $kvname.VaultName -Name $CertImportResult.Name -Tag $updatedtags -ErrorAction stop
+            Set-AzKeyVaultCertificateAttribute -VaultName $($vname.VaultName) -Name $CertImportResult.Name -Tag $updatedtags -ErrorAction stop
             write-host "`tSUCCESS! user tag '$taguservalue' and app tag '$tagappvalue' applied." -ForegroundColor green
             Write-Log -Action "user tag '$taguservalue' and app tag '$tagappvalue' applied."
 
         }
         catch {
 
-            Write-Log -Action "user tag '$taguservalue' and app tag '$tagappvalue' weren't applied." -Status "ERROR" -ErrorMessage $_.Exception.Message
-            throw "`tsomething didn't work while applying tags."
+            Write-Log -Action "user tag '$taguservalue' and app tag '$tagappvalue' weren't applied." -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+            Write-Error "failed to apply usertag: $($tagUserValue) and apptag : $($tagAppValue).`n$($_.Exception.Message)"
+            throw
 
         }
         
@@ -786,7 +832,9 @@ while ($scriptRepeat) {
 
         catch {
 
-            Write-Log -Action "Trying to get-azroleassignment is failing for $($scope) and  $($MatchedUser.UserPrincipalName)" -Status "ERROR" -ErrorMessage $_.Exception.Message
+            Write-Log -Action "Trying to get-azroleassignment is failing for $($scope) and  $($MatchedUser.UserPrincipalName)" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+            write-error "failed to get azroleassignment for scope $($scope) and user $($matcheduser.userprincipalname). `n$($_.Exception.Message)"
+            throw
 
         }
 
@@ -801,8 +849,9 @@ while ($scriptRepeat) {
 
             catch {
 
-                write-log -Action "failed to assign role to $($scope) " -Status "ERROR" -ErrorMessage $_.Exception.Message 
-                throw "`tfailed to assign role to $($scope)"
+                write-log -Action "failed to assign role to $($scope) " -Status "ERROR" -ErrorMessage $($_.exception.message) 
+                write-error "`tfailed to assign role to $($scope) : `n$($_.exception.message)"
+                throw 
 
             }
         }
@@ -823,7 +872,9 @@ while ($scriptRepeat) {
 
         catch {
 
-            Write-Log -Action "Trying to get-azroleassignment is failing for (secret) $($scope) and  $($MatchedUser.UserPrincipalName)" -Status "ERROR" -ErrorMessage $_.Exception.Message
+            Write-Log -Action "Trying to get-azroleassignment is failing for (secret) $($scope) and  $($MatchedUser.UserPrincipalName)" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+            write-error "`tfailed to assign azroleassignmentm in scope: $($scope) and user: $($MatchedUser.UserPrincipalName) `n$($_exception.message)"
+            throw
 
         }
 
@@ -837,8 +888,9 @@ while ($scriptRepeat) {
             
             catch {
             
-                write-log -Action "failed to add role assignment"  -Status "ERROR" -ErrorMessage $_.Exception.Message
-                #throw "failed to assign role to $secretscope"
+                write-log -Action "failed to add role assignment to scope : $($secretscope)"  -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                Write-Error "failed to assign role to scope : $($secretscope)`n$($_.exception.message)" 
+                throw 
             
             }
         }
