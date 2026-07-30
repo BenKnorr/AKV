@@ -8,7 +8,7 @@
 
     assumptions:
     - Az.Accounts, Az.KeyVault modules are installed.
-    1.2.3
+    1.2.4
 #>
 #endregion
 
@@ -89,7 +89,7 @@
 
     catch {
         
-        Write-Log -Action "there was an error while getting or installing the NuGet package provider" -Status "ERROR" -ErrorMessage $_.Exception.Message
+        Write-Log -Action "there was an error while getting or installing the NuGet package provider" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
 
     }
 
@@ -113,7 +113,7 @@
 
     catch {
 
-        Write-Log -Action "There was a problem getting the PSrepository for PSgallery so we can make it trusted" -status "ERROR" -ErrorMessage $_.Exception.Message
+        Write-Log -Action "There was a problem getting the PSrepository for PSgallery so we can make it trusted" -status "ERROR" -ErrorMessage $($_.Exception.Message)
 
     }
 
@@ -144,7 +144,7 @@
         }
         catch {
 
-            Write-Log -Action "Failed to install module '$module'" -Status "ERROR" -ErrorMessage $_.Exception.Message
+            Write-Log -Action "Failed to install module '$module'" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
             exit 1
 
         }
@@ -170,7 +170,7 @@
 
     catch {
 
-        Write-Log -Action "Azure login failed" -Status "ERROR" -ErrorMessage $_.Exception.Message
+        Write-Log -Action "Azure login failed" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
         exit 1
 
     }
@@ -239,7 +239,7 @@
 
     catch {
 
-        write-log -action "we couldn't get get-azkeyvault to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+        write-log -action "we couldn't get get-azkeyvault to work" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
 
     }
 
@@ -253,7 +253,7 @@
 
         catch {
 
-            write-log -action "we couldn't get get-azkeyvaultcertificate to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+            write-log -action "we couldn't get get-azkeyvaultcertificate to work" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
 
         }
 
@@ -271,7 +271,7 @@
 
             catch {
 
-                write-log -action "we couldn't get get-azkeyvaultcertificate to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+                write-log -action "we couldn't get get-azkeyvaultcertificate to work" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
 
             }
                         
@@ -313,7 +313,7 @@
 
                     catch {
 
-                        write-log -action "we couldn't get get-azkeyvaultsercret to work" -Status "ERROR" -ErrorMessage $_.Exception.Message
+                        write-log -action "we couldn't get get-azkeyvaultsercret to work" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
 
                     }
 
@@ -342,7 +342,7 @@
                 
                 catch {
                 
-                     write-log -action "we couldn't get import-pfxcertificate to work on $($outfile)" -Status "ERROR" -ErrorMessage $_.Exception.Message
+                     write-log -action "we couldn't get import-pfxcertificate to work on $($outfile)" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
 
                 }
                        
