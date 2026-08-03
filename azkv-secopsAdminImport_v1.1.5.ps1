@@ -11,7 +11,7 @@
     *connect to AZKV with Entra user with proper permissions
     functionality:
     1) Find, select and confirm .pfx/.p12 file
-    2) Open PFX file using user supplied password
+    2) Open PFX/P12 file using user supplied password. Retry loop if bad password is supplied.
     3) Parse PFX public key's subject information
     4.1) Check Entra for user-email attribute match to the certificate's "E" subject (if it exists)
     4.2) Check Entra for a user's display name match to the certificate's "CN" subject.
@@ -24,9 +24,9 @@
     6) Import to Azure Key Vault after prompting user which vault is being targeted
     7) Set tags on imported certificate to align with imported user and selected vault name, and apply RBAC
         to corresponding secret.
-    8) Delete PFX file and exit.
+    8) Prompt to re-run script starting at PFX/P12 import step(1) or exit.
 
-    v1.1.4
+    v1.1.5
 #>
 #endregion
 
@@ -45,13 +45,28 @@
     $tagAppKey="App"
     $tagUserKey="User"
 
+
+    #########################################
+    ######################################### Please input these variables before running the script    #########################################
+    #########################################
     ## define the targeted production Azure subscription ID here.
+
     $AZtargetSubscription = ## AZ SubscriptionID : ADMIN ADD AZURE SUBSCRIPTION ID HERE ##
+    ## example:
+    ##      $AZtargetSubscription = "a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d"
+
+    $LogFile = ## Log file location : ADMIN ADD FULL FILE PATH INCLUDING FILENAME HERE with quotes ##
+    ## example:
+    ##      $logfile = "c:\users\ben\akv_upload.log"
+
+    #########################################
+    ######################################### Thank you!                                                #########################################
+    #########################################
+
 
     ## This script assumes that the manually obtained PFX file lives in the current user's downloads folder.
     $Downloads = Join-Path $env:USERPROFILE "Downloads"
     
-    $LogFile = ## Log file location : ADMIN ADD FULL FILE PATH INCLUDING FILENAME HERE ##
     ## These modules are required for the script to execute properly.
     $RequiredModules = @(
         "Az.Accounts",
@@ -201,7 +216,7 @@ while ($scriptRepeat) {
                     $manualPFXcheck=$true
                 }
                 else {
-                    write-host "`t `"$pfxpath`" couldn't be found. Please try again." -ForegroundColor Yellow
+                    Write-Warning "`t`"$pfxpath`" couldn't be found. Please try again."
                 }
             }
 
@@ -226,34 +241,65 @@ while ($scriptRepeat) {
         ###### Step 2 — Load PFX with password  ######
         ##############################################" -ForegroundColor white
 
+        Clear-Variable PFX_success -ErrorAction Ignore
+
         ## 1. Capture the password as a SecureString
-        Write-Host "`nEnter the password for the certificate bundle:" -ForegroundColor magenta
-        $PfxPasswordSecure = Read-Host -AsSecureString
-
-        Write-Log -Action "Attempting to load certificate"
-
-        try {
         
-            ## 2. Load the certificate using the SecureString overload
-            ## The 'Exportable' flag is not needed if you only intend to view public info
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
-                $PfxPath, 
-                $PfxPasswordSecure, 
-                [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
-            )
+        while (-not $PFX_success) {
+            Write-Host "`nEnter the password for the certificate bundle:" -ForegroundColor magenta
+            $PfxPasswordSecure = Read-Host -AsSecureString
 
-            Write-Log -Action "certificate loaded successfully"
-            Write-Host "`tSUCCESS! certificate loaded successfully" -ForegroundColor Green
+            if (($PfxPasswordSecure |ConvertFrom-SecureString -AsPlainText) -like "QUIT" ) {
+
+                write-host "Admin exited the script." -ForegroundColor yellow
+                return
+
+            }
+
+            Write-Log -Action "Attempting to load certificate"
+
+            try {
+            
+                ## 2. Load the certificate using the SecureString overload
+                ## The 'Exportable' flag is not needed if you only intend to view public info
+                
+                $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+                    $PfxPath, 
+                    $PfxPasswordSecure, 
+                    [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet
+                )
+
+                $PFX_success=$true
+                
+                Write-Log -Action "certificate loaded successfully"
+                Write-Host "`tSUCCESS! certificate loaded successfully" -ForegroundColor Green
+            
+            }
+            
+            catch {
+            
+                if ($_.exception.message -match "network password" -or $_.exception.message -match "password.*correct") {
+
+                    $PFX_success=$false
+                    Write-Warning "`tCertificate bundle password may be incorrect. Please try again."
+                    write-host "`t`tType `"QUIT`" to cancel and exit the script." -ForegroundColor yellow
+
+                }
+                
+                else {
+                    
+                    $PFX_success=$false
+                    Write-Log -Action "Failed to load certificate due to an issue not related to the password" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
+                    Write-Error "failed to load certificate- the file format may be incorrect.`n$($_.Exception.message)"
+                    throw
+
+                }
+
+            }
         
         }
-        
-        catch {
-        
-            Write-Log -Action "Failed to load certificate" -Status "ERROR" -ErrorMessage $($_.Exception.Message)
-            Write-Error "failed to load certificate.`n$($_.Exception.message)"
-            throw
-        
-        }
+
+        Write-Host "done"
     #endregion
 
     # ============================
@@ -280,6 +326,8 @@ while ($scriptRepeat) {
             [PSCustomObject]@{ Key = $kv[0]; Value = $kv[1] }
         
         }
+        Remove-Variable cert -ErrorAction ignore
+
 
         $CN = ($SubjectParts | Where-Object Key -eq "CN").Value
         $E  = ($SubjectParts | Where-Object Key -eq "E").Value
@@ -747,6 +795,7 @@ while ($scriptRepeat) {
                 Write-Host "`n`tSUCCESSS! The certificate (with private key) is now in Azure Key Vault." -ForegroundColor Green
                 Write-Log -Action "PFX file $pfxpath successfully uploaded to AKV."
                 $importSuccess = "yes"
+                Remove-Variable $PfxPasswordSecure -ErrorAction ignore
                 
             }
 
@@ -776,8 +825,8 @@ while ($scriptRepeat) {
 
 
         #region app tag picker
-            clear-variable selection -ErrorAction SilentlyContinue
-            Clear-Variable tagAppValue -ErrorAction SilentlyContinue
+            clear-variable selection -ErrorAction ignore
+            Clear-Variable tagAppValue -ErrorAction ignore
 
             write-host "`tApp tags" -ForegroundColor Yellow
             write-host "`t1) CAISO" -ForegroundColor Cyan
@@ -805,7 +854,7 @@ while ($scriptRepeat) {
 
         #endregion
         
-        Clear-Variable tagUserValue -ErrorAction SilentlyContinue
+        Clear-Variable tagUserValue -ErrorAction ignore
         $tagUserValue=$($ConfirmedUser.UserPrincipalName)
         $updatedtags=@{$tagAppKey="$tagAppValue" ; $tagUserKey=$tagUserValue}
 
