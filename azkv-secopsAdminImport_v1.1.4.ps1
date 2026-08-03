@@ -26,7 +26,7 @@
         to corresponding secret.
     8) Delete PFX file and exit.
 
-    v1.1.3
+    v1.1.4
 #>
 #endregion
 
@@ -658,7 +658,7 @@ while ($scriptRepeat) {
 
                 }
                 
-                if ($vaultlist.count -gt 0) {
+                if ($vaultlist.count -gt 1) {
 
                     Write-Host "`tAvailable Vaults in this resource group:" -ForegroundColor yellow
 
@@ -738,7 +738,7 @@ while ($scriptRepeat) {
             try {
 
                 $CertImportResult = Import-AzKeyVaultCertificate `
-                    -VaultName $kvName.vaultname `
+                    -VaultName $($kvName.vaultname) `
                     -Name "$certSubject" `
                     -FilePath $pfxPath `
                     -Password $PfxPasswordSecure -ErrorAction stop
@@ -788,8 +788,8 @@ while ($scriptRepeat) {
 
                 write-host "`nEnter the number of the app tag you want to apply" -ForegroundColor Magenta
                 $selection = Read-Host
-                $kvName = $vaultlist[$selection -1]
-                Write-Log -Action "admin selected vault $($kvName.vaultname)"
+                #$kvName = $vaultlist[$selection -1] ##### Removed Aug3.2026 as this variable is set in the vault selector loop earlier in the script. 
+                #Write-Log -Action "admin selected apptag in vault : $($kvName.vaultname)" ##### Removed Aug3.2026 as this is a nonsensical log writing action. Functional/readable log entry below before end of region.
 
             }
 
@@ -800,15 +800,18 @@ while ($scriptRepeat) {
                 "3" { $tagAppValue = Read-Host "Enter app name" }
 
             }
+            Write-Log -Action "admin selected apptag value : $($tagappvalue) in vault : $($kvName.vaultname)"
+
+
         #endregion
         
-        Clear-Variable $tagUserValue -ErrorAction SilentlyContinue
+        Clear-Variable tagUserValue -ErrorAction SilentlyContinue
         $tagUserValue=$($ConfirmedUser.UserPrincipalName)
         $updatedtags=@{$tagAppKey="$tagAppValue" ; $tagUserKey=$tagUserValue}
 
         try {
 
-            Set-AzKeyVaultCertificateAttribute -VaultName $($vname.VaultName) -Name $CertImportResult.Name -Tag $updatedtags -ErrorAction stop
+            Set-AzKeyVaultCertificateAttribute -VaultName $($kvname.VaultName) -Name $CertImportResult.Name -Tag $updatedtags -ErrorAction stop
             write-host "`tSUCCESS! user tag '$taguservalue' and app tag '$tagappvalue' applied." -ForegroundColor green
             Write-Log -Action "user tag '$taguservalue' and app tag '$tagappvalue' applied."
 
@@ -826,8 +829,8 @@ while ($scriptRepeat) {
         
         try {
 
-            [bool]$currentAzRoleAssignment=(Get-AzRoleAssignment -scope $scope -signinname $($MatchedUser.UserPrincipalName) -RoleDefinitionName $userAKVrole -ErrorAction stop)
-        
+            $currentAzRoleAssignment=[bool](Get-AzRoleAssignment -scope $scope -signinname $($MatchedUser.UserPrincipalName) -RoleDefinitionName $userAKVrole -ErrorAction stop)
+            ## August 3, 2026 to test ^
         }
 
         catch {
@@ -866,8 +869,9 @@ while ($scriptRepeat) {
 
         try {
 
-            [bool]$currentAzSecretRoleAssignment=(Get-AzRoleAssignment -scope $secretscope -signinname $($MatchedUser.UserPrincipalName) -RoleDefinitionName $userAKVrole -ErrorAction stop)
-        
+            $currentAzSecretRoleAssignment=[bool](Get-AzRoleAssignment -scope $secretscope -signinname $($MatchedUser.UserPrincipalName) -RoleDefinitionName $userAKVrole -ErrorAction stop)
+            ## August 3, 2026 to test ^
+
         }
 
         catch {
