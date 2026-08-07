@@ -26,7 +26,7 @@
         to corresponding secret.
     8) Prompt to re-run script starting at PFX/P12 import step(1) or exit.
 
-    v1.1.5
+    v1.1.6
 #>
 #endregion
 
@@ -335,7 +335,7 @@ while ($scriptRepeat) {
         $O  = ($SubjectParts | Where-Object Key -eq "O").Value
 
         Write-Host "`n`tCertificate Details:" -ForegroundColor Yellow
-        Write-Host "`tCN: $CN`n`tE : $E`tOU: $OU`n`tO : $O" -ForegroundColor cyan
+        Write-Host "`tCN: $CN`n`tE : $E`n`tOU: $OU`n`tO : $O" -ForegroundColor cyan
 
         Write-Log -Action "Extracted certificate subject fields: CN=$CN, E=$E, OU=$OU, O=$O"
     #endregion
@@ -431,14 +431,21 @@ while ($scriptRepeat) {
             
             Write-Log -Action "Attempting CN-based lookup"
 
-            # Extract display name before "x####"
-            $DisplayNameCandidate = $CN -replace "x\d+$","" -replace "\s+$",""
-            Write-Host "`n`tOur CN-derived display name:" -ForegroundColor Yellow
-            Write-Host "`t$displaynamecandidate`n" -ForegroundColor Cyan
-            
+            ## Extract cert CN and normalize to AZ DisplayName : "FIRST LASTxx#####" to "LAST, FIRST" ,
+            ## trimming the "x" followed by 1+ numeric characters. Before v1.1.5 this was first to last 
+            ## and pruning "x#####" only.
+
+            $certGivenname = $CN.split(' ')[0]
+            $certSurname = ($CN -replace "x\d+$","" -replace "\s+$","").split(' ')[1]
+            ##Write-Host "`n`tOur CN-derived display name to find in Entra:" -ForegroundColor Yellow
+            ##Write-Host "`t$displaynamecandidate`n" -ForegroundColor Cyan
+
             try {
 
-                $MatchedUser = Get-AzADUser -Filter "displayName eq '$DisplayNameCandidate'" -ErrorAction Stop
+                ## the following line does not account for users with apostophes in their names when using AZ cmdlets. 
+                #$MatchedUser = Get-AzADUser -Filter "displayName eq '$DisplayNameCandidate'" -ErrorAction Stop
+                ## the following does a client match regardless of special characters.
+                $matcheduser = Get-AzADUser | where-object {$_.GivenName -like $certgivenname -and $_.surname -like $certsurname}
 
             }
             catch {
@@ -454,8 +461,9 @@ while ($scriptRepeat) {
                 $MatchSource = "DisplayName"
                 
                 Write-Host "`tSUCCESS!" -foregroundcolor green
-                write-host "`tEntra display name & certificate CN match:" -ForegroundColor yellow
-                Write-Host "`tENTRA   : $matcheduser.displayname`n`tCERT-CN : $displaynamecandidate" -ForegroundColor Green
+                #write-host "`tEntra display name & certificate CN match:" -ForegroundColor yellow
+                write-host "`tAn Entra user's `'GivenName`' and `'Surname `' matches our certificate's CN:"  -ForegroundColor yellow
+                Write-Host "`tENTRA   : $($matcheduser.givenname) $($matcheduser.surname)`n`tCERT-CN : $($certGivenname) $($certSurname)" -ForegroundColor Green
                 Write-Log -Action "Found matching certificate CN to Entra user Display Name: $ManualUPN / $($MatchedUser.DisplayName)"
 
             }
@@ -464,7 +472,7 @@ while ($scriptRepeat) {
 
                 Write-Host "`tWARNING!" -ForegroundColor Red
                 write-host "`tWe couldn't find an Entra user's Display Name that matches the certificate's CN field:" -ForegroundColor Yellow
-                write-host "`tCERT-CN : `"$displaynamecandidate`"" -ForegroundColor cyan
+                write-host "`tCERT-CN : `"$certgivenname $certsurname`"" -ForegroundColor cyan
                     
                 while (-not $matchedUser) {
         
